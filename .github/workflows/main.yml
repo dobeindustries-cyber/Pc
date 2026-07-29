@@ -26,7 +26,7 @@ jobs:
           netsh advfirewall firewall add rule name="RDP-Tailscale" `
             dir=in action=allow protocol=TCP localport=3389
 
-          # (Optional) Restart the Remote Desktop service to ensure changes take effect
+          # Restart the Remote Desktop service to ensure changes take effect
           Restart-Service -Name TermService -Force
 
       - name: Create RDP User with Secure Password
@@ -64,18 +64,18 @@ jobs:
           
           Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
           
-          # Force target directory installation to guarantee path safety
-          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "INSTALLDIR=`"C:\Tailscale\`"", "/quiet", "/norestart" -Wait
+          # Install using default directory structure silently
+          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
           Remove-Item $installerPath -Force
 
       - name: Establish Tailscale Connection
         run: |
-          # Use the forced installation path
-          $tsExe = "C:\Tailscale\tailscale.exe"
+          # Use standard default system location path
+          $tsExe = "C:\Program Files\Tailscale\tailscale.exe"
           
-          # Wait up to 30 seconds for the binary to physically appear if installer lag occurs
+          # Wait up to 45 seconds for file system synchronization to map the new binary
           $timeout = 0
-          while (-not (Test-Path $tsExe) -and $timeout -lt 6) {
+          while (-not (Test-Path $tsExe) -and $timeout -lt 9) {
               Start-Sleep -Seconds 5
               $timeout++
           }
@@ -85,14 +85,14 @@ jobs:
               exit 1
           }
           
-          # Bring up Tailscale with the provided auth key and set a unique hostname
-          & $tsExe up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID
+          # Invoke native binary call using quoted identifier syntax
+          & "$tsExe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID
           
           # Wait for Tailscale to assign an IP
           $tsIP = $null
           $retries = 0
           while (-not $tsIP -and $retries -lt 10) {
-              $tsIP = & $tsExe ip -4
+              $tsIP = & "$tsExe" ip -4
               Start-Sleep -Seconds 5
               $retries++
           }
@@ -123,7 +123,7 @@ jobs:
           Write-Host "Password: $env:RDP_CREDS"
           Write-Host "==================`n"
           
-          # Keep runner active indefinitely (or until manually cancelled)
+          # Keep runner active indefinitely
           while ($true) {
               Write-Host "[$(Get-Date)] RDP Active - Use Ctrl+C in workflow to terminate"
               Start-Sleep -Seconds 300
