@@ -22,7 +22,7 @@ jobs:
           # Remove any existing rule with the same name to avoid duplication
           netsh advfirewall firewall delete rule name="RDP-Tailscale"
           
-          # For testing, allow any incoming connection on port 3389
+          # Allow incoming connection on port 3389
           netsh advfirewall firewall add rule name="RDP-Tailscale" `
             dir=in action=allow protocol=TCP localport=3389
 
@@ -57,42 +57,24 @@ jobs:
               exit 1
           }
 
-      - name: Install Tailscale
+      - name: Install Tailscale via Chocolatey
         run: |
-          $tsUrl = "https://tailscale.com"
-          $installerPath = Join-Path $env:TEMP "tailscale.msi"
+          # Use Choco to silently download, configure environment paths, and provision Tailscale
+          choco install tailscale -y --no-progress
           
-          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
-          
-          # Install using default directory structure silently
-          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
-          Remove-Item $installerPath -Force
+          # Force refresh environmental variables in this session so 'tailscale' command works immediately
+          $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
 
       - name: Establish Tailscale Connection
         run: |
-          # Use standard default system location path
-          $tsExe = "C:\Program Files\Tailscale\tailscale.exe"
-          
-          # Wait up to 45 seconds for file system synchronization to map the new binary
-          $timeout = 0
-          while (-not (Test-Path $tsExe) -and $timeout -lt 9) {
-              Start-Sleep -Seconds 5
-              $timeout++
-          }
-
-          if (-not (Test-Path $tsExe)) {
-              Write-Error "Tailscale executable was not found at $tsExe"
-              exit 1
-          }
-          
-          # Invoke native binary call using quoted identifier syntax
-          & "$tsExe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID
+          # Bring up Tailscale with the provided auth key and set a unique hostname
+          tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID
           
           # Wait for Tailscale to assign an IP
           $tsIP = $null
           $retries = 0
           while (-not $tsIP -and $retries -lt 10) {
-              $tsIP = & "$tsExe" ip -4
+              $tsIP = tailscale ip -4
               Start-Sleep -Seconds 5
               $retries++
           }
