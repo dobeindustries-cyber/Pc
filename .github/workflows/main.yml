@@ -63,13 +63,27 @@ jobs:
           $installerPath = Join-Path $env:TEMP "tailscale.msi"
           
           Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
-          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
+          
+          # Force target directory installation to guarantee path safety
+          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "INSTALLDIR=`"C:\Tailscale\`"", "/quiet", "/norestart" -Wait
           Remove-Item $installerPath -Force
 
       - name: Establish Tailscale Connection
         run: |
-          # Safely construct the path to tailscale.exe
-          $tsExe = Join-Path $env:ProgramFiles "Tailscale\tailscale.exe"
+          # Use the forced installation path
+          $tsExe = "C:\Tailscale\tailscale.exe"
+          
+          # Wait up to 30 seconds for the binary to physically appear if installer lag occurs
+          $timeout = 0
+          while (-not (Test-Path $tsExe) -and $timeout -lt 6) {
+              Start-Sleep -Seconds 5
+              $timeout++
+          }
+
+          if (-not (Test-Path $tsExe)) {
+              Write-Error "Tailscale executable was not found at $tsExe"
+              exit 1
+          }
           
           # Bring up Tailscale with the provided auth key and set a unique hostname
           & $tsExe up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID
